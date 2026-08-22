@@ -1,8 +1,9 @@
+
 {
-  "name": "나만의 앱",
-  "short_name": "내앱",
+  "name": "통신 3사 통합 관리 앱", 
+  "short_name": "통신관리", 
   "start_url": "./index.html",
-  "display": "standalone",
+  "display": "standalone", 
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
