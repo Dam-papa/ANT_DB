@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>통신 3사 통합 관리 앱</title>
+
+  <!-- Leaflet 지도 라이브러리 (CSS & JS) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- 화면 캡처를 위한 html2canvas 라이브러리 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- 엑셀 저장용 SheetJS(xlsx) 라이브러리 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+    .app-container {
+      width: 100%;
+      height: calc(100vh - 60px);
+      position: relative;
+    }
+
+    #map { 
+      width: 100%; 
+      height: 100%; 
+      background-color: #e5e3df; 
+      z-index: 1; 
+    }
+
+    /* 🔥 [수정] 우측 상단 국소명 워터마크 (가독성 보정) */
+    .station-title-watermark {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      background: #ffffff !important; /* 하얀색 카드로 변경 */
+      color: #0f172a !important;     /* 글자를 어두운 다크 네이비로 설정 */
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 2px solid #0284c7;      /* 선명한 파란색 테두리 */
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      font-weight: 800;
+      pointer-events: none;
+    }
+    .station-title-watermark .station-icon {
+      font-size: 14px;
+    }
+    .station-title-watermark .station-label-text {
+      color: #334155 !important;
+      font-weight: 700;
+    }
+    .station-title-watermark .station-text {
+      color: #0284c7 !important; /* 국소명 강조 파란색 */
+      font-weight: 900;
+    }
+
+    .control-panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.98);
+      padding: 12px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+      width: 340px;
+      max-height: calc(100vh - 90px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 🔥 [수정] 모바일 화면 반응형 최적화 (가림 최소화 및 글자 시인성 강화) */
+    @media screen and (max-width: 768px) {
+      .control-panel {
+        top: 8px; left: 8px; right: 8px;
+        width: auto; max-height: 40vh; padding: 8px; font-size: 12px;
+      }
+      /* 모바일 상단 국소명 워터마크 배치 및 크기 조절 */
+      .station-title-watermark {
+        top: 8px !important;
+        right: 8px !important;
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        border-width: 1.5px !important;
+      }
+      .station-title-watermark .station-icon {
+        font-size: 11px !important;
+      }
+      .map-filter-panel { 
+        top: auto !important; 
+        bottom: 70px !important; 
+        right: 8px !important; 
+        padding: 2px 5px !important;
+      }
+      .save-action-panel { 
+        bottom: 70px !important; 
+        left: 8px !important; 
+        right: auto !important; 
+        gap: 3px; 
+        padding: 4px 6px; 
+      }
+      .btn-save-action { 
+        padding: 5px 8px !important; 
+        font-size: 10px !important; 
+      }
+    }
+
+    .panel-header-row { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px; }
+    .panel-header-row h3 { font-size: 13px; color: #202124; margin: 0; }
+    .toggle-arrow { font-size: 12px; font-weight: bold; color: #5f6368; }
+
+    .panel-body-content { display: flex; flex-direction: column; overflow-y: auto; flex-grow: 1; gap: 6px; }
+
+    .station-name-box { background: #f8f9fa; border: 1px solid #dadce0; border-radius: 6px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; }
+    .station-name-box label { font-size: 10px; font-weight: bold; color: #1a73e8; }
+    .station-name-input { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 11px; font-weight: bold; color: #202124; }
+    .station-name-display { font-size: 11px; font-weight: bold; color: #202124; padding: 2px 0; }
+
+    .tab-indicator-badge { display: inline-block; background: #e8f0fe; color: #1a73e8; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 10px; width: fit-content; }
+
+    .optimization-sub-menu { display: none; background: #f1f3f4; padding: 2px; border-radius: 6px; }
+    .optimization-sub-btn { flex: 1; padding: 5px 4px; border: 1px solid transparent; background: transparent; font-size: 10px; font-weight: bold; color: #5f6368; cursor: pointer; border-radius: 4px; }
+    .optimization-sub-btn.active { background: #137333; color: white; }
+
+    .carrier-tabs { display: flex; gap: 3px; background: #f1f3f4; padding: 2px; border-radius: 6px; }
+    .carrier-tab { flex: 1; padding: 5px 0; border: none; background: transparent; font-size: 10px; font-weight: bold; color: #5f6368; cursor: pointer; border-radius: 4px; }
+    .carrier-tab.active[data-carrier="SKT"] { background: #E60000; color: white; }
+    .carrier-tab.active[data-carrier="KT"] { background: #00A896; color: white; }
+    .carrier-tab.active[data-carrier="LGU"] { background: #0056B3; color: white; }
+
+    .btn-group { display: flex; flex-direction: column; gap: 5px; }
+    .btn { width: 100%; padding: 7px; border: none; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; }
+    .btn-location { background: #34a853; color: white; }
+    .btn-add-equipment { background: #E60000; color: white; }
+
+    .btn-cancel-action { background: #d93025 !important; color: white !important; display: none; padding: 5px; font-size: 10px; }
+
+    .status-box { padding: 5px 7px; background: #f1f3f4; border-radius: 6px; font-size: 10px; color: #3c4043; line-height: 1.3; white-space: pre-line; }
+
+    .map-filter-panel { position: absolute; top: 65px; right: 12px; z-index: 1000; background: rgba(255, 255, 255, 0.95); padding: 3px 6px; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 2px; font-size: 10px; font-weight: bold; }
+    .filter-btn { padding: 2px 5px; border: 1px solid #dadce0; background: white; border-radius: 10px; cursor: pointer; font-size: 9px; }
+    .filter-btn.active { background: #202124; color: white; border-color: #202124; }
+
+    .save-action-panel { position: absolute; bottom: 20px; right: 12px; z-index: 1000; display: flex; gap: 4px; background: rgba(255, 255, 255, 0.95); padding: 4px 8px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.25); }
+    .btn-save-action { padding: 5px 8px; border: none; border-radius: 12px; font-size: 9px; font-weight: bold; cursor: pointer; color: white; }
+    .btn-save-current { background: #1a73e8; }
+    .btn-save-all { background: #8E24AA; }
+    .btn-save-excel { background: #137333; }
+
+    .equipment-list-container { border-top: 1px solid #dadce0; padding-top: 5px; overflow-y: auto; max-height: 130px; }
+    .equipment-list-title { font-size: 10px; font-weight: bold; color: #5f6368; margin-bottom: 3px; }
+
+    .equipment-card { background: #f8f9fa; border: 1px solid #dadce0; border-radius: 6px; padding: 5px; margin-bottom: 5px; }
+    .equipment-card-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 10px; color: #202124; margin-bottom: 3px; }
+
+    .type-tabs { display: flex; border-bottom: 1px solid #dadce0; margin-bottom: 3px; }
+    .tab-btn { flex: 1; padding: 2px 0; background: none; border: none; font-size: 9px; font-weight: bold; color: #70757a; cursor: pointer; border-bottom: 2px solid transparent; }
+    .tab-btn.active { color: #1a73e8; border-bottom: 2px solid #1a73e8; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .antenna-control { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+    .antenna-control label { font-size: 9px; color: #5f6368; }
+    .antenna-input { width: 32px; padding: 2px; border: 1px solid #ccc; border-radius: 4px; font-size: 10px; text-align: center; }
+
+    .btn-draw-antenna { flex: 1; padding: 3px; border: none; border-radius: 4px; font-size: 9px; font-weight: bold; cursor: pointer; color: white; background: #1a73e8; }
+    .btn-add-investment-antenna { flex: 1; padding: 3px; border: none; border-radius: 4px; font-size: 9px; font-weight: bold; cursor: pointer; color: white; background: #0d904f; }
+
+    .antenna-item-row { display: flex; justify-content: space-between; align-items: center; background: #ffffff; border: 1px solid #e0e0e0; padding: 2px 5px; border-radius: 4px; margin-top: 2px; font-size: 9px; }
+    .btn-small-action { border: none; padding: 2px 4px; border-radius: 3px; font-size: 8px; font-weight: bold; cursor: pointer; }
+    .btn-reset-relocation { background: #e65100; color: white; }
+    .btn-delete-investment { background: #d93025; color: white; }
+
+    .tab-specific-section { margin-top: 5px; padding-top: 5px; border-top: 2px dashed #d93025; display: none; }
+    .voc-selected-info { background: #feefee; border: 1px solid #fad2cf; border-radius: 6px; padding: 5px; font-size: 9px; margin-bottom: 5px; }
+    .voc-memo-textarea { width: 100%; height: 35px; font-size: 9px; padding: 3px; border: 1px solid #ccc; border-radius: 4px; margin-top: 2px; resize: none; }
+
+    .bottom-nav { 
+      position: fixed; 
+      bottom: 0; 
+      left: 0; 
+      width: 100%; 
+      height: 60px; 
+      background: #ffffff; 
+      border-top: 1px solid #dadce0; 
+      display: flex; 
+      justify-content: space-around; 
+      align-items: center; 
+      z-index: 2000; 
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.08); 
+    }
+    .nav-item { 
+      flex: 1; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      height: 100%; 
+      background: none; 
+      border: none; 
+      color: #70757a; 
+      font-size: 11px; 
+      font-weight: bold; 
+      cursor: pointer; 
+    }
+    .nav-item .icon { font-size: 16px; margin-bottom: 2px; }
+    .nav-item.active { color: #1a73e8; }
+
+    .map-text-label, .equipment-text-label, .antenna-text-label { background: rgba(255, 255, 255, 0.95); border-radius: 4px; padding: 2px 4px; font-size: 9px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .antenna-badge-investment-lte { background: #0066FF; color: #ffffff; border-radius: 8px; padding: 2px 5px; font-size: 8px; font-weight: bold; }
+    .antenna-badge-investment-5g { background: #8A2BE2; color: #ffffff; border-radius: 8px; padding: 2px 5px; font-size: 8px; font-weight: bold; }
+    .antenna-badge-relocated { background: #e65100; color: #ffffff; border-radius: 8px; padding: 2px 5px; font-size: 8px; font-weight: bold; }
+
+    .voc-always-visible-badge { background: rgba(217, 48, 37, 0.92); color: white; border: 1.5px solid #ffffff; border-radius: 6px; padding: 2px 5px; font-size: 8px; max-width: 110px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); pointer-events: none; }
+    .repeater-badge { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid #ccc; }
+
+    .placement-mode { cursor: crosshair !important; }
+
+    #image-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
+      z-index: 999999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 15px;
+    }
+    #image-modal img {
+      max-width: 90%;
+      max-height: 70vh;
+      border: 2px solid #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .modal-btns { display: flex; gap: 10px; margin-top: 15px; }
+    .modal-btn { padding: 10px 20px; font-size: 12px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; }
+    .modal-btn-download { background: #1a73e8; color: white; text-decoration: none; display: inline-block; line-height: 20px; }
+    .modal-btn-close { background: #d93025; color: white; }
+  </style>
+</head>
+<body>
+
+  <div class="app-container" id="capture-area">
+    <!-- 🔥 [수정] 우측 상단 가독성을 높인 국소명 오버레이 카운터 -->
+    <div class="station-title-watermark" id="station-watermark-badge">
+      <span class="station-icon">🏢</span>
+      <span class="station-label-text">국소명 :</span>
+      <span class="station-text" id="watermark-station-name">미지정</span>
+    </div>
+
+    <div class="map-filter-panel">
+      <span>표시:</span>
+      <button class="filter-btn active" onclick="setMapFilter('ALL', event)">전체</button>
+      <button class="filter-btn" onclick="setMapFilter('SKT', event)">SKT</button>
+      <button class="filter-btn" onclick="setMapFilter('KT', event)">KT</button>
+      <button class="filter-btn" onclick="setMapFilter('LGU', event)">LGU+</button>
+    </div>
+
+    <div class="save-action-panel">
+      <button class="btn-save-action btn-save-current" onclick="saveCurrentTabImage()">📸 현재화면</button>
+      <button class="btn-save-action btn-save-all" onclick="saveAllTabsImage()">📸 전체저장</button>
+      <button class="btn-save-action btn-save-excel" onclick="exportToExcel()">📊 엑셀</button>
+    </div>
+
+    <div class="control-panel">
+      <div class="panel-header-row" onclick="toggleControlPanel()">
+        <h3>📱 통신 장비 통합 관리</h3>
+        <span class="toggle-arrow" id="panel-toggle-icon">▲ 닫기</span>
+      </div>
+
+      <div class="panel-body-content" id="panel-body-content">
+        <div class="station-name-box">
+          <label id="station-name-label">🏢 국소명 수기 입력</label>
+          <div id="station-input-wrapper">
+            <input type="text" id="global-station-input" class="station-name-input" placeholder="예: Gangnam_01" oninput="handleStationNameChange(this.value)">
+          </div>
+          <div id="station-display-wrapper" style="display:none;">
+            <div class="station-name-display" id="global-station-display">미입력</div>
+          </div>
+        </div>
+
+        <div class="tab-indicator-badge" id="current-tab-badge">📋 현장 실사 모드</div>
+
+        <div class="optimization-sub-menu" id="optimization-sub-menu">
+          <button class="optimization-sub-btn active" id="sub-btn-relocation" onclick="switchOptimizationSubMenu('relocation')">🔄 안테나 재배치</button>
+          <button class="optimization-sub-btn" id="sub-btn-investment" onclick="switchOptimizationSubMenu('investment')">💰 투자 필요</button>
+        </div>
+
+        <div class="carrier-tabs">
+          <button class="carrier-tab active" data-carrier="SKT" onclick="switchCarrier('SKT')">SKT</button>
+          <button class="carrier-tab" data-carrier="KT" onclick="switchCarrier('KT')">KT</button>
+          <button class="carrier-tab" data-carrier="LGU" onclick="switchCarrier('LGU')">LGU+</button>
+        </div>
+
+        <div class="btn-group" id="survey-action-group">
+          <button class="btn btn-location" onclick="moveToCurrentLocation()">📍 내 위치 다시 조회</button>
+          <button class="btn btn-add-equipment" id="add-equipment-btn" onclick="togglePlacementMode()">
+            📡 [<span id="current-carrier-label">SKT</span>] 장비위치 추가
+          </button>
+        </div>
+
+        <button class="btn btn-cancel-action" id="cancel-action-btn" onclick="cancelAllActiveActions()">
+          ❌ 작업 취소 (ESC)
+        </button>
+
+        <div class="status-box" id="status-text">안내 메시지가 여기에 표시됩니다.</div>
+
+        <div class="equipment-list-container" id="equipment-list-section">
+          <div class="equipment-list-title" id="list-title">📋 SKT 설치된 장비 목록</div>
+          <div id="equipment-list">
+            <div style="font-size: 10px; color: #80868b; text-align: center; padding: 6px 0;">등록된 장비가 없습니다.</div>
+          </div>
+        </div>
+
+        <div id="voc-extra-section" class="tab-specific-section">
+          <div style="font-size:10px; font-weight:bold; color:#d93025; margin-bottom:3px;">📢 VOC 전용 안테나 설정</div>
+          <div id="voc-antenna-control">
+            <div style="font-size:9px; color:#5f6368; text-align:center; padding:4px 0;">지도 상의 안테나를 선택해주세요.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="switchMainTab('survey', this)">
+      <span class="icon">📋</span>
+      <span>현장 실사</span>
+    </button>
+    <button class="nav-item" onclick="switchMainTab('voc', this)">
+      <span class="icon">📢</span>
+      <span>VOC</span>
+    </button>
+    <button class="nav-item" onclick="switchMainTab('optimization', this)">
+      <span class="icon">📈</span>
+      <span>투자,최적화</span>
+    </button>
+  </nav>
+
+  <div id="image-modal">
+    <div style="color:#ffffff; font-size:13px; font-weight:bold; margin-bottom:8px; text-align:center;">
+      🖼️ 캡처가 완료되었습니다!<br><span style="font-size:10px; color:#ffcc00; font-weight:normal;">(다운로드 클릭 또는 이미지를 꾹 눌러 저장하세요)</span>
+    </div>
+    <img id="modal-image-element" src="" alt="캡처 이미지" />
+    <div class="modal-btns">
+      <a id="modal-download-link" class="modal-btn modal-btn-download" download="captured.png">파일 저장</a>
+      <button class="modal-btn modal-btn-close" onclick="closeImageModal()">닫기</button>
+    </div>
+  </div>
+
+  <script>
+    let globalStationName = '';
+    let currentMainTab = 'survey';
+    let currentCarrier = 'SKT';
+    let activeMapFilter = 'ALL';
+    let currentOptimizationSubMenu = 'relocation';
+    let selectedRelocationAntenna = null;
+    let isPanelOpen = true;
+
+    const addressCache = {}; 
+
+    function toggleControlPanel() {
+      isPanelOpen = !isPanelOpen;
+      const bodyContent = document.getElementById('panel-body-content');
+      const toggleIcon = document.getElementById('panel-toggle-icon');
+      
+      if (isPanelOpen) {
+        bodyContent.style.display = 'flex';
+        toggleIcon.textContent = '▲ 닫기';
+      } else {
+        bodyContent.style.display = 'none';
+        toggleIcon.textContent = '▼ 열기';
+      }
+    }
+
+    const tabLayers = {
+      survey: L.layerGroup(),
+      voc: L.layerGroup(),
+      optimization: L.layerGroup()
+    };
+
+    const tabDataStore = {
+      survey: { SKT: {}, KT: {}, LGU: {} },
+      voc: { SKT: {}, KT: {}, LGU: {} },
+      optimization: { SKT: {}, KT: {}, LGU: {} }
+    };
+
+    let selectedVocAntenna = null;
+    let isDrawingPolygon = false;
+    let currentPolygonPoints = [];
+    let livePolyline = null;
+    let liveGuideLine = null;
+    let livePointMarkers = [];
+
+    const map = L.map('map', { zoomControl: true, renderer: L.canvas() }).setView([37.5665, 126.9780], 18);
+    
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
+      maxZoom: 19, 
+      subdomains: 'abcd',
+      attribution: '© OpenStreetMap, © CARTO',
+      crossOrigin: true 
+    }).addTo(map);
+
+    tabLayers.survey.addTo(map);
+    tabLayers.voc.addTo(map);
+    tabLayers.optimization.addTo(map);
+
+    let myLocationMarker = null;
+    let isPlacementMode = false;
+    const ANTENNA_LINE_LENGTH_METERS = 35;
+
+    const CARRIER_CONFIG = {
+      SKT: { name: 'SKT', mainColor: '#E60000', colorLTE: '#DC143C', color5G: '#8B0000' },
+      KT: { name: 'KT', mainColor: '#00A896', colorLTE: '#20B2AA', color5G: '#008B8B' },
+      LGU: { name: 'LGU+', mainColor: '#0056B3', colorLTE: '#1E90FF', color5G: '#002244' }
+    };
+
+    let activeAntennaPlacement = null;
+    const statusText = document.getElementById('status-text');
+    const addEquipmentBtn = document.getElementById('add-equipment-btn');
+    const equipmentListEl = document.getElementById('equipment-list');
+    const cancelActionBtn = document.getElementById('cancel-action-btn');
+
+    /* 국소명 입력 시 실시간 업데이트 */
+    function handleStationNameChange(val) {
+      globalStationName = val.trim();
+      const displayTxt = globalStationName !== '' ? globalStationName : '미지정';
+      document.getElementById('global-station-display').textContent = displayTxt;
+      document.getElementById('watermark-station-name').textContent = displayTxt;
+    }
+
+    function deepCopyEquipmentData(sourceStore) {
+      const targetStore = { SKT: {}, KT: {}, LGU: {} };
+      ['SKT', 'KT', 'LGU'].forEach(c => {
+        Object.keys(sourceStore[c]).forEach(eqNum => {
+          const eq = sourceStore[c][eqNum];
+          targetStore[c][eqNum] = {
+            eqNum: eq.eqNum, carrier: eq.carrier, lat: eq.lat, lng: eq.lng,
+            targetCounts: { ...eq.targetCounts }, activeTab: eq.activeTab,
+            antennas: eq.antennas.map(a => ({
+              id: a.id, name: a.name, carrier: a.carrier, type: a.type,
+              originLat: a.originLat, originLng: a.originLng, destLat: a.destLat, destLng: a.destLng,
+              azimuth: a.azimuth, vocMemo: a.vocMemo || '',
+              polygonPoints: a.polygonPoints ? [...a.polygonPoints] : null,
+              isAddedInvestment: a.isAddedInvestment || false,
+              relocated: a.relocated ? { ...a.relocated } : null
+            }))
+          };
+        });
+      });
+      return targetStore;
+    }
+
+    function showCancelBtn(show) {
+      cancelActionBtn.style.display = show ? 'block' : 'none';
+    }
+
+    function cancelAllActiveActions() {
+      cancelAntennaPlacement();
+      cancelPlacementMode();
+      if (isDrawingPolygon) {
+        clearLivePolygonLayers();
+        isDrawingPolygon = false;
+        currentPolygonPoints = [];
+      }
+      selectedRelocationAntenna = null;
+      showCancelBtn(false);
+      renderCurrentTabOnMap();
+      if (currentMainTab === 'optimization') updateOptimizationStatusText();
+    }
+
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') cancelAllActiveActions();
+    });
+
+    function switchMainTab(tabName, btnEl) {
+      cancelAllActiveActions();
+      resetVocSelection();
+
+      if (tabName !== 'survey' && Object.keys(tabDataStore[tabName].SKT).length === 0 && Object.keys(tabDataStore.survey.SKT).length > 0) {
+        tabDataStore[tabName] = deepCopyEquipmentData(tabDataStore.survey);
+      }
+
+      currentMainTab = tabName;
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      if(btnEl) btnEl.classList.add('active');
+
+      const badge = document.getElementById('current-tab-badge');
+      const vocExtra = document.getElementById('voc-extra-section');
+      const surveyActionGroup = document.getElementById('survey-action-group');
+      const optSubMenu = document.getElementById('optimization-sub-menu');
+      const inputWrapper = document.getElementById('station-input-wrapper');
+      const displayWrapper = document.getElementById('station-display-wrapper');
+      const stationLabel = document.getElementById('station-name-label');
+
+      if (tabName === 'survey') {
+        inputWrapper.style.display = 'block'; displayWrapper.style.display = 'none'; stationLabel.textContent = '🏢 국소명 수기 입력';
+        badge.textContent = '📋 현장 실사 모드'; badge.style.background = '#e8f0fe'; badge.style.color = '#1a73e8';
+        vocExtra.style.display = 'none'; optSubMenu.style.display = 'none'; surveyActionGroup.style.display = 'flex';
+        statusText.textContent = "현장 실사 모드입니다.";
+      } else {
+        inputWrapper.style.display = 'none'; displayWrapper.style.display = 'block'; stationLabel.textContent = '🏢 국소명';
+
+        if (tabName === 'voc') {
+          badge.textContent = '📢 VOC 관리 모드'; badge.style.background = '#fce8e6'; badge.style.color = '#d93025';
+          vocExtra.style.display = 'block'; optSubMenu.style.display = 'none'; surveyActionGroup.style.display = 'none';
+          statusText.textContent = "📢 VOC 전용 모드입니다.";
+        } else if (tabName === 'optimization') {
+          badge.textContent = '📈 투자 & 최적화 모드'; badge.style.background = '#e6f4ea'; badge.style.color = '#137333';
+          vocExtra.style.display = 'none'; optSubMenu.style.display = 'flex'; surveyActionGroup.style.display = 'none';
+          updateOptimizationStatusText();
+        }
+      }
+
+      renderCurrentTabOnMap();
+      updateEquipmentListUI();
+      map.invalidateSize();
+    }
+
+    function switchOptimizationSubMenu(menuType) {
+      currentOptimizationSubMenu = menuType;
+      cancelAllActiveActions();
+      document.getElementById('sub-btn-relocation').classList.toggle('active', menuType === 'relocation');
+      document.getElementById('sub-btn-investment').classList.toggle('active', menuType === 'investment');
+      updateOptimizationStatusText();
+      updateEquipmentListUI();
+      renderCurrentTabOnMap();
+    }
+
+    function updateOptimizationStatusText() {
+      if (currentOptimizationSubMenu === 'relocation') statusText.textContent = "🔄 [안테나 재배치] 이동할 안테나를 선택하세요.";
+      else statusText.textContent = "💰 [투자 필요] 신규 안테나를 추가할 수 있습니다.";
+    }
+
+    function createArrowPolygon(destLat, destLng, azimuthDeg, color) {
+      const arrowLengthMeters = 8;
+      const arrowWidthMeters = 5;
+
+      const pTip = calculateDestinationPoint(destLat, destLng, azimuthDeg, arrowLengthMeters);
+      const pLeft = calculateDestinationPoint(destLat, destLng, (azimuthDeg - 140 + 360) % 360, arrowWidthMeters);
+      const pRight = calculateDestinationPoint(destLat, destLng, (azimuthDeg + 140) % 360, arrowWidthMeters);
+
+      return L.polygon([[pTip.lat, pTip.lng], [pLeft.lat, pLeft.lng], [pRight.lat, pRight.lng]], {
+        color: color, fillColor: color, fillOpacity: 1.0, weight: 1
+      });
+    }
+
+    function renderCurrentTabOnMap() {
+      Object.keys(tabLayers).forEach(t => tabLayers[t].clearLayers());
+      const currentStore = tabDataStore[currentMainTab];
+      const targetLayerGroup = tabLayers[currentMainTab];
+
+      ['SKT', 'KT', 'LGU'].forEach(c => {
+        if (activeMapFilter !== 'ALL' && activeMapFilter !== c) return;
+
+        Object.values(currentStore[c]).forEach(eq => {
+          const eqMarker = L.marker([eq.lat, eq.lng], { icon: createRepeaterIcon(c) });
+          eqMarker.bindTooltip(`[${CARRIER_CONFIG[c].name}] 장비 ${eq.eqNum}`, { permanent: true, direction: 'right', offset: [14, 0], className: 'equipment-text-label' });
+
+          if (currentMainTab === 'survey') {
+            eqMarker.on('click', () => { if (confirm(`장비 ${eq.eqNum}을(를) 삭제하시겠습니까?`)) deleteEquipment(c, eq.eqNum); });
+          }
+          targetLayerGroup.addLayer(eqMarker);
+
+          eq.antennas.forEach(ant => {
+            const isRelocationTab = (currentMainTab === 'optimization' && currentOptimizationSubMenu === 'relocation');
+            const isSurveyTab = (currentMainTab === 'survey');
+            const isSelected = (selectedRelocationAntenna && selectedRelocationAntenna.antenna.id === ant.id);
+
+            let baseColor = (ant.type === 'LTE') ? CARRIER_CONFIG[c].colorLTE : CARRIER_CONFIG[c].color5G;
+            if (ant.isAddedInvestment) baseColor = (ant.type === 'LTE') ? '#0066FF' : '#8A2BE2';
+
+            if (ant.relocated) {
+              const oldCenter = L.marker([ant.originLat, ant.originLng], { icon: createAntennaCenterIcon('#808080') });
+              const oldLine = L.polyline([[ant.originLat, ant.originLng], [ant.destLat, ant.destLng]], { color: '#808080', weight: 2, dashArray: '4, 4', opacity: 0.5 });
+              const oldHead = createArrowPolygon(ant.destLat, ant.destLng, ant.azimuth, '#808080');
+              
+              targetLayerGroup.addLayer(oldCenter); targetLayerGroup.addLayer(oldLine); targetLayerGroup.addLayer(oldHead);
+
+              const newColor = isSelected ? '#800080' : '#e65100';
+              const newCenter = L.marker([ant.relocated.originLat, ant.relocated.originLng], { icon: createAntennaCenterIcon(newColor) });
+              const newLine = L.polyline([[ant.relocated.originLat, ant.relocated.originLng], [ant.relocated.destLat, ant.relocated.destLng]], { color: newColor, weight: 3, opacity: 0.9 });
+              const newHead = createArrowPolygon(ant.relocated.destLat, ant.relocated.destLng, ant.relocated.azimuth, newColor);
+              const transferLine = L.polyline([[ant.originLat, ant.originLng], [ant.relocated.originLat, ant.relocated.originLng]], { color: '#e65100', weight: 2, dashArray: '6, 6' });
+
+              const relocatedLabel = `(재배치)${ant.name} (${Math.round(ant.relocated.azimuth)}°)`;
+              newHead.bindTooltip(relocatedLabel, { permanent: true, direction: 'top', className: 'antenna-badge-relocated' });
+              
+              newHead.on('click', (evt) => {
+                L.DomEvent.stopPropagation(evt);
+                if (isRelocationTab || isSurveyTab) selectAntennaForRelocation(eq.eqNum, ant);
+              });
+
+              targetLayerGroup.addLayer(newCenter); targetLayerGroup.addLayer(newLine); targetLayerGroup.addLayer(newHead); targetLayerGroup.addLayer(transferLine);
+            } else {
+              let currentColor = isSelected ? '#800080' : baseColor;
+              const centerMarker = L.marker([ant.originLat, ant.originLng], { icon: createAntennaCenterIcon(currentColor) });
+              const line = L.polyline([[ant.originLat, ant.originLng], [ant.destLat, ant.destLng]], { color: currentColor, weight: isSelected ? 5 : 3.5, opacity: 0.95 });
+              const headMarker = createArrowPolygon(ant.destLat, ant.destLng, ant.azimuth, currentColor);
+
+              if (ant.isAddedInvestment) {
+                const addedLabel = `(추가)${ant.name} (${Math.round(ant.azimuth)}°)`;
+                const badgeClass = (ant.type === 'LTE') ? 'antenna-badge-investment-lte' : 'antenna-badge-investment-5g';
+                headMarker.bindTooltip(addedLabel, { permanent: true, direction: 'top', className: badgeClass });
+              } else {
+                headMarker.bindTooltip(`${ant.name} (${Math.round(ant.azimuth)}°)`, { permanent: true, direction: 'top', className: 'antenna-text-label' });
+              }
+
+              headMarker.on('click', (evt) => {
+                L.DomEvent.stopPropagation(evt);
+                if (isRelocationTab || isSurveyTab) selectAntennaForRelocation(eq.eqNum, ant);
+                else if (currentMainTab === 'voc' && c === 'SKT') selectAntennaForVoc(ant);
+              });
+
+              targetLayerGroup.addLayer(centerMarker); targetLayerGroup.addLayer(line); targetLayerGroup.addLayer(headMarker);
+            }
+
+            if (ant.vocMemo && ant.vocMemo.trim() !== '') {
+              const midLat = ant.originLat + (ant.destLat - ant.originLat) * 0.6;
+              const midLng = ant.originLng + (ant.destLng - ant.originLng) * 0.6;
+              const memoIcon = L.divIcon({ html: `<div class="voc-always-visible-badge">📌 <b>${ant.name}</b><br>${ant.vocMemo}</div>`, className: 'custom-marker', iconSize: [100, 32], iconAnchor: [-8, 16] });
+              targetLayerGroup.addLayer(L.marker([midLat, midLng], { icon: memoIcon, zIndexOffset: 1000 }));
+            }
+
+            if (ant.polygonPoints && ant.polygonPoints.length >= 3) {
+              targetLayerGroup.addLayer(L.polygon(ant.polygonPoints, { color: '#d93025', fillColor: '#ea4335', fillOpacity: 0.35, weight: 2, dashArray: '4, 4' }));
+            }
+          });
+        });
+      });
+    }
+
+    function selectAntennaForRelocation(eqNum, antObj) {
+      selectedRelocationAntenna = { eqNum: eqNum, antenna: antObj };
+      renderCurrentTabOnMap(); showCancelBtn(true);
+      statusText.textContent = `🔄 [${antObj.name}] 이동할 새 위치를 클릭하세요.`;
+      activeAntennaPlacement = { mode: (currentMainTab === 'survey') ? 'SURVEY_EDIT' : 'RELOCATION', carrier: currentCarrier, eqNum: eqNum, antId: antObj.id, phase: 'POINT', originLat: null, originLng: null, tempLine: null, tempEndMarker: null };
+      L.DomUtil.addClass(map._container, 'placement-mode');
+    }
+
+    function resetAntennaRelocation(eqNum, antId) {
+      const eqData = tabDataStore[currentMainTab][currentCarrier][eqNum];
+      if (eqData) {
+        const ant = eqData.antennas.find(a => a.id === antId);
+        if (ant && ant.relocated) {
+          delete ant.relocated; renderCurrentTabOnMap(); updateEquipmentListUI();
+          statusText.textContent = `↩️ 원위치로 복원되었습니다.`;
+        }
+      }
+    }
+
+    function deleteInvestmentAntenna(eqNum, antId) {
+      const eqData = tabDataStore.optimization[currentCarrier][eqNum];
+      if (eqData) {
+        const index = eqData.antennas.findIndex(a => a.id === antId);
+        if (index !== -1) {
+          const deleted = eqData.antennas.splice(index, 1)[0];
+          if (eqData.targetCounts[deleted.type] > 0) eqData.targetCounts[deleted.type]--;
+          renderCurrentTabOnMap(); updateEquipmentListUI();
+          statusText.textContent = `🗑️ 안테나가 삭제되었습니다.`;
+        }
+      }
+    }
+
+    function createRepeaterIcon(carrier) {
+      return L.divIcon({ html: `<div class="repeater-badge" style="border-color: ${CARRIER_CONFIG[carrier].mainColor};">📡</div>`, className: 'custom-marker', iconSize: [24, 24], iconAnchor: [12, 12] });
+    }
+
+    function createAntennaCenterIcon(color) {
+      return L.divIcon({ html: `<div style="width: 8px; height: 8px; background: ${color}; border-radius: 50%; border: 2px solid #ffffff;"></div>`, className: 'custom-marker', iconSize: [8, 8], iconAnchor: [4, 4] });
+    }
+
+    function getNextEquipmentNumber(carrier) {
+      let num = 1;
+      while (tabDataStore.survey[carrier][num]) num++;
+      return num;
+    }
+
+    function switchCarrier(carrier) {
+      cancelAllActiveActions(); currentCarrier = carrier;
+      document.querySelectorAll('.carrier-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-carrier') === carrier));
+      document.getElementById('current-carrier-label').textContent = CARRIER_CONFIG[carrier].name;
+      document.getElementById('list-title').textContent = `📋 ${CARRIER_CONFIG[carrier].name} 장비 목록`;
+      addEquipmentBtn.style.backgroundColor = CARRIER_CONFIG[carrier].mainColor;
+      updateEquipmentListUI(); renderCurrentTabOnMap();
+    }
+
+    function setMapFilter(filter, evt) {
+      activeMapFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      if (evt && evt.target) evt.target.classList.add('active');
+      renderCurrentTabOnMap();
+    }
+
+    function moveToCurrentLocation() {
+      statusText.textContent = "📍 GPS 조회 중...";
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          const lat = pos.coords.latitude, lng = pos.coords.longitude;
+          if (myLocationMarker) map.removeLayer(myLocationMarker);
+          map.setView([lat, lng], 18);
+          myLocationMarker = L.circleMarker([lat, lng], { radius: 6, fillColor: "#1a73e8", color: "#ffffff", weight: 2, fillOpacity: 0.9 }).addTo(map);
+          myLocationMarker.bindTooltip("나의 위치", { permanent: true, direction: 'right', className: 'map-text-label' }).openTooltip();
+          statusText.textContent = "✅ 내 위치 조회 성공";
+        }, () => { statusText.textContent = "❌ GPS 권한을 확인해주세요."; }, { enableHighAccuracy: true });
+      }
+    }
+
+    function togglePlacementMode() {
+      if (currentMainTab !== 'survey') return alert("장비 추가는 '현장 실사' 탭에서만 가능합니다.");
+      cancelAntennaPlacement();
+      isPlacementMode = !isPlacementMode;
+      if (isPlacementMode) {
+        showCancelBtn(true); addEquipmentBtn.classList.add('active'); addEquipmentBtn.textContent = "❌ 위치 지정 취소";
+        L.DomUtil.addClass(map._container, 'placement-mode');
+        statusText.textContent = `🎯 지도에서 장비 설치 위치를 클릭하세요.`;
+      } else {
+        cancelPlacementMode(); statusText.textContent = "취소되었습니다.";
+      }
+    }
+
+    function cancelPlacementMode() {
+      isPlacementMode = false;
+      addEquipmentBtn.classList.remove('active');
+      addEquipmentBtn.textContent = `📡 [${CARRIER_CONFIG[currentCarrier].name}] 장비위치 추가`;
+      addEquipmentBtn.style.backgroundColor = CARRIER_CONFIG[currentCarrier].mainColor;
+      L.DomUtil.removeClass(map._container, 'placement-mode');
+    }
+
+    function calculateDestinationPoint(lat, lng, azimuthDeg, distanceMeters) {
+      const R = 6378137; const brng = azimuthDeg * (Math.PI / 180);
+      const lat1 = lat * (Math.PI / 180), lon1 = lng * (Math.PI / 180);
+      const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceMeters / R) + Math.cos(lat1) * Math.sin(distanceMeters / R) * Math.cos(brng));
+      const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceMeters / R) * Math.cos(lat1), Math.cos(distanceMeters / R) - Math.sin(lat1) * Math.sin(lat2));
+      return { lat: lat2 * (180 / Math.PI), lng: lon2 * (180 / Math.PI) };
+    }
+
+    function calculateAzimuth(lat1, lng1, lat2, lng2) {
+      const p1 = map.latLngToContainerPoint([lat1, lng1]);
+      const p2 = map.latLngToContainerPoint([lat2, lng2]);
+      let angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI) + 90;
+      if (angle < 0) angle += 360;
+      return angle;
+    }
+
+    function startAntennaPlacement(eqNum, type) {
+      cancelPlacementMode();
+      const eqData = tabDataStore[currentMainTab][currentCarrier][eqNum];
+      if (!eqData) return;
+      const count = parseInt(document.getElementById(`antenna-count-${type.toLowerCase()}-${eqNum}`).value, 10);
+      if (isNaN(count) || count < 0) return alert("올바른 수량을 입력하세요.");
+
+      eqData.antennas = eqData.antennas.filter(a => a.type !== type);
+      eqData.targetCounts[type] = count;
+      if (count === 0) { renderCurrentTabOnMap(); updateEquipmentListUI(); return; }
+
+      activeAntennaPlacement = { mode: 'NORMAL', carrier: currentCarrier, eqNum: eqNum, type: type, remainingCount: count, phase: 'POINT', originLat: null, originLng: null, tempLine: null, tempEndMarker: null };
+      showCancelBtn(true); L.DomUtil.addClass(map._container, 'placement-mode');
+      statusText.textContent = `📍 [${type}] 안테나 설치 지점을 클릭하세요. (남은 개수: ${count})`;
+    }
+
+    function startInvestmentAntennaAddition(eqNum, type) {
+      cancelPlacementMode(); showCancelBtn(true);
+      activeAntennaPlacement = { mode: 'INVESTMENT', carrier: currentCarrier, eqNum: eqNum, type: type, remainingCount: 1, phase: 'POINT', originLat: null, originLng: null, tempLine: null, tempEndMarker: null };
+      L.DomUtil.addClass(map._container, 'placement-mode');
+      statusText.textContent = `💰 [투자 추가] 지도를 클릭하세요.`;
+    }
+
+    function cancelAntennaPlacement() {
+      if (activeAntennaPlacement) {
+        if (activeAntennaPlacement.tempLine) map.removeLayer(activeAntennaPlacement.tempLine);
+        if (activeAntennaPlacement.tempEndMarker) map.removeLayer(activeAntennaPlacement.tempEndMarker);
+        activeAntennaPlacement = null;
+        L.DomUtil.removeClass(map._container, 'placement-mode');
+      }
+    }
+
+    function selectAntennaForVoc(antObj) {
+      selectedVocAntenna = antObj; renderCurrentTabOnMap(); updateVocPanelUI(antObj);
+      statusText.textContent = `🎯 [${antObj.name}] 선택됨`;
+    }
+
+    function resetVocSelection() {
+      selectedVocAntenna = null;
+      document.getElementById('voc-antenna-control').innerHTML = `<div style="font-size:9px; color:#5f6368; text-align:center; padding:4px 0;">지도 상의 안테나를 선택하세요.</div>`;
+      renderCurrentTabOnMap();
+    }
+
+    function updateVocPanelUI(antObj) {
+      document.getElementById('voc-antenna-control').innerHTML = `
+        <div class="voc-selected-info"><div><b>선택:</b> ${antObj.name}</div></div>
+        <textarea id="voc-panel-memo-input" class="voc-memo-textarea" placeholder="VOC 메모...">${antObj.vocMemo || ''}</textarea>
+        <button onclick="saveVocMemoFromPanel()" style="width:100%; margin-top:2px; padding:4px; background:#d93025; color:white; border:none; border-radius:4px; font-weight:bold; font-size:9px;">메모 반영</button>
+        <button class="btn" style="background:#202124; color:white; margin-top:3px; padding:5px; font-size:9px;" onclick="startPolygonDrawing()">📐 폴리곤 생성</button>
+        ${antObj.polygonPoints ? `<button class="btn" style="background:#70757a; color:white; margin-top:2px; padding:5px; font-size:9px;" onclick="removeAntennaPolygon()">🗑️ 폴리곤 삭제</button>` : ''}
+        <button class="btn" style="background:#f1f3f4; color:#3c4043; margin-top:2px; padding:5px; font-size:9px;" onclick="resetVocSelection()">선택 해제</button>
+      `;
+    }
+
+    function saveVocMemoFromPanel() {
+      if (!selectedVocAntenna || currentMainTab !== 'voc') return;
+      const text = document.getElementById('voc-panel-memo-input').value.trim();
+      Object.values(tabDataStore.voc.SKT).forEach(eq => {
+        eq.antennas.forEach(a => { if (a.id === selectedVocAntenna.id) a.vocMemo = text; });
+      });
+      renderCurrentTabOnMap(); alert("VOC 메모가 반영되었습니다.");
+    }
+
+    function startPolygonDrawing() {
+      if (!selectedVocAntenna) return;
+      clearLivePolygonLayers(); isDrawingPolygon = true; currentPolygonPoints = []; showCancelBtn(true);
+      L.DomUtil.addClass(map._container, 'placement-mode');
+      statusText.textContent = `📐 폴리곤 점들을 클릭하세요.`;
+      
+      const container = document.getElementById('voc-antenna-control');
+      if (!document.getElementById('btn-finish-poly')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-finish-poly'; btn.className = 'btn'; btn.style.cssText = 'background:#34a853; color:white; margin-top:2px; font-size:9px; padding:5px;';
+        btn.onclick = finishPolygonDrawing; btn.textContent = '✅ 폴리곤 완료';
+        container.appendChild(btn);
+      }
+    }
+
+    function clearLivePolygonLayers() {
+      if (livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+      if (liveGuideLine) { map.removeLayer(liveGuideLine); liveGuideLine = null; }
+      livePointMarkers.forEach(m => map.removeLayer(m));
+      livePointMarkers = [];
+    }
+
+    function finishPolygonDrawing() {
+      if (!isDrawingPolygon) return;
+      if (currentPolygonPoints.length < 3) return alert("최소 3개 점이 필요합니다.");
+      Object.values(tabDataStore.voc.SKT).forEach(eq => {
+        eq.antennas.forEach(a => { if (a.id === selectedVocAntenna.id) a.polygonPoints = [...currentPolygonPoints]; });
+      });
+      clearLivePolygonLayers(); isDrawingPolygon = false; currentPolygonPoints = []; showCancelBtn(false);
+      L.DomUtil.removeClass(map._container, 'placement-mode');
+      renderCurrentTabOnMap(); updateVocPanelUI(selectedVocAntenna);
+    }
+
+    function removeAntennaPolygon() {
+      if (!selectedVocAntenna) return;
+      Object.values(tabDataStore.voc.SKT).forEach(eq => {
+        eq.antennas.forEach(a => { if (a.id === selectedVocAntenna.id) a.polygonPoints = null; });
+      });
+      renderCurrentTabOnMap(); updateVocPanelUI(selectedVocAntenna);
+    }
+
+    map.on('mousemove', e => {
+      if (isDrawingPolygon && currentPolygonPoints.length > 0) {
+        const last = currentPolygonPoints[currentPolygonPoints.length - 1];
+        if (liveGuideLine) liveGuideLine.setLatLngs([last, [e.latlng.lat, e.latlng.lng]]);
+        else liveGuideLine = L.polyline([last, [e.latlng.lat, e.latlng.lng]], { color: '#808080', weight: 2, dashArray: '4, 4' }).addTo(map);
+      }
+      if (!activeAntennaPlacement || activeAntennaPlacement.phase !== 'BEARING') return;
+
+      const carrier = activeAntennaPlacement.carrier;
+      const type = activeAntennaPlacement.type || 'LTE';
+      let color = (type === 'LTE') ? CARRIER_CONFIG[carrier].colorLTE : CARRIER_CONFIG[carrier].color5G;
+      if (['RELOCATION', 'SURVEY_EDIT'].includes(activeAntennaPlacement.mode)) color = '#e65100';
+      if (activeAntennaPlacement.mode === 'INVESTMENT') color = (type === 'LTE') ? '#0066FF' : '#8A2BE2';
+
+      const originLat = activeAntennaPlacement.originLat, originLng = activeAntennaPlacement.originLng;
+      const azimuth = calculateAzimuth(originLat, originLng, e.latlng.lat, e.latlng.lng);
+      const dest = calculateDestinationPoint(originLat, originLng, azimuth, ANTENNA_LINE_LENGTH_METERS);
+
+      if (activeAntennaPlacement.tempLine) activeAntennaPlacement.tempLine.setLatLngs([[originLat, originLng], [dest.lat, dest.lng]]);
+      else activeAntennaPlacement.tempLine = L.polyline([[originLat, originLng], [dest.lat, dest.lng]], { color: color, weight: 4, opacity: 0.95, dashArray: '6, 6' }).addTo(map);
+
+      const arrowHead = createArrowPolygon(dest.lat, dest.lng, azimuth, color);
+      if (activeAntennaPlacement.tempEndMarker) map.removeLayer(activeAntennaPlacement.tempEndMarker);
+      activeAntennaPlacement.tempEndMarker = arrowHead.addTo(map);
+
+      statusText.textContent = `🧭 각도: ${Math.round(azimuth)}°`;
+    });
+
+    map.on('click', e => {
+      const lat = e.latlng.lat, lng = e.latlng.lng;
+      if (isDrawingPolygon) {
+        currentPolygonPoints.push([lat, lng]);
+        livePointMarkers.push(L.circleMarker([lat, lng], { radius: 4, fillColor: '#d93025', color: '#fff', weight: 2, fillOpacity: 1 }).addTo(map));
+        if (currentPolygonPoints.length >= 2) {
+          if (livePolyline) livePolyline.setLatLngs(currentPolygonPoints);
+          else livePolyline = L.polyline(currentPolygonPoints, { color: '#808080', weight: 3 }).addTo(map);
+        }
+        return;
+      }
+
+      if (isPlacementMode && currentMainTab === 'survey') {
+        const eqNum = getNextEquipmentNumber(currentCarrier);
+        tabDataStore.survey[currentCarrier][eqNum] = { eqNum, carrier: currentCarrier, lat, lng, antennas: [], targetCounts: { LTE: 0, '5G': 0 }, activeTab: 'LTE' };
+        cancelPlacementMode(); showCancelBtn(false); updateEquipmentListUI(); renderCurrentTabOnMap();
+        statusText.textContent = `✅ 장비위치 ${eqNum} 등록 완료`;
+        return;
+      }
+
+      if (activeAntennaPlacement) {
+        const eqData = tabDataStore[currentMainTab][activeAntennaPlacement.carrier][activeAntennaPlacement.eqNum];
+        if (activeAntennaPlacement.phase === 'POINT') {
+          activeAntennaPlacement.originLat = lat; activeAntennaPlacement.originLng = lng; activeAntennaPlacement.phase = 'BEARING';
+          statusText.textContent = `🧭 지향 방향을 클릭하세요.`;
+          return;
+        }
+
+        if (activeAntennaPlacement.phase === 'BEARING') {
+          const azimuth = calculateAzimuth(activeAntennaPlacement.originLat, activeAntennaPlacement.originLng, lat, lng);
+          const dest = calculateDestinationPoint(activeAntennaPlacement.originLat, activeAntennaPlacement.originLng, azimuth, ANTENNA_LINE_LENGTH_METERS);
+
+          if (activeAntennaPlacement.mode === 'SURVEY_EDIT') {
+            const ant = eqData.antennas.find(a => a.id === activeAntennaPlacement.antId);
+            if (ant) { ant.originLat = activeAntennaPlacement.originLat; ant.originLng = activeAntennaPlacement.originLng; ant.destLat = dest.lat; ant.destLng = dest.lng; ant.azimuth = azimuth; }
+          } else if (activeAntennaPlacement.mode === 'RELOCATION') {
+            const ant = eqData.antennas.find(a => a.id === activeAntennaPlacement.antId);
+            if (ant) { ant.relocated = { originLat: activeAntennaPlacement.originLat, originLng: activeAntennaPlacement.originLng, destLat: dest.lat, destLng: dest.lng, azimuth }; }
+          } else if (activeAntennaPlacement.mode === 'INVESTMENT') {
+            const type = activeAntennaPlacement.type;
+            const name = `${activeAntennaPlacement.carrier}-${type}${eqData.antennas.filter(a => a.type === type).length + 1}`;
+            eqData.antennas.push({ id: `${activeAntennaPlacement.carrier}_${activeAntennaPlacement.eqNum}_${type}_${Date.now()}`, name, carrier: activeAntennaPlacement.carrier, type, originLat: activeAntennaPlacement.originLat, originLng: activeAntennaPlacement.originLng, destLat: dest.lat, destLng: dest.lng, azimuth, isAddedInvestment: true });
+            eqData.targetCounts[type] = (eqData.targetCounts[type] || 0) + 1;
+          } else {
+            const type = activeAntennaPlacement.type;
+            const name = `${activeAntennaPlacement.carrier}-${type}${eqData.antennas.filter(a => a.type === type).length + 1}`;
+            eqData.antennas.push({ id: `${activeAntennaPlacement.carrier}_${activeAntennaPlacement.eqNum}_${type}_${Date.now()}`, name, carrier: activeAntennaPlacement.carrier, type, originLat: activeAntennaPlacement.originLat, originLng: activeAntennaPlacement.originLng, destLat: dest.lat, destLng: dest.lng, azimuth });
+            activeAntennaPlacement.remainingCount--;
+          }
+
+          if (activeAntennaPlacement.tempLine) { map.removeLayer(activeAntennaPlacement.tempLine); activeAntennaPlacement.tempLine = null; }
+          if (activeAntennaPlacement.tempEndMarker) { map.removeLayer(activeAntennaPlacement.tempEndMarker); activeAntennaPlacement.tempEndMarker = null; }
+
+          if (activeAntennaPlacement.remainingCount > 0 && activeAntennaPlacement.mode === 'NORMAL') {
+            activeAntennaPlacement.phase = 'POINT';
+            statusText.textContent = `📍 다음 안테나 위치를 클릭하세요. (남은: ${activeAntennaPlacement.remainingCount})`;
+          } else {
+            cancelAntennaPlacement(); selectedRelocationAntenna = null; showCancelBtn(false); updateEquipmentListUI();
+          }
+          renderCurrentTabOnMap();
+        }
+      }
+    });
+
+    function deleteEquipment(carrier, eqNum) {
+      delete tabDataStore.survey[carrier][eqNum];
+      updateEquipmentListUI(); renderCurrentTabOnMap();
+    }
+
+    function switchTab(eqNum, tabType) {
+      const store = tabDataStore[currentMainTab];
+      if (store[currentCarrier][eqNum]) { store[currentCarrier][eqNum].activeTab = tabType; updateEquipmentListUI(); }
+    }
+
+    function updateEquipmentListUI() {
+      const carrierData = tabDataStore[currentMainTab][currentCarrier];
+      const keys = Object.keys(carrierData).map(Number).sort((a, b) => a - b);
+      if (keys.length === 0) {
+        equipmentListEl.innerHTML = `<div style="font-size: 9px; color: #80868b; text-align: center; padding: 4px 0;">등록된 장비가 없습니다.</div>`;
+        return;
+      }
+
+      let html = '';
+      keys.forEach(num => {
+        const eq = carrierData[num];
+        const lteList = eq.antennas.filter(a => a.type === 'LTE');
+        const fivegList = eq.antennas.filter(a => a.type === '5G');
+        const activeTab = eq.activeTab || 'LTE';
+        const isSurvey = (currentMainTab === 'survey');
+        const isRelocationMode = (currentMainTab === 'optimization' && currentOptimizationSubMenu === 'relocation');
+        const isInvestmentMode = (currentMainTab === 'optimization' && currentOptimizationSubMenu === 'investment');
+
+        const genRows = (list) => {
+          if (list.length === 0) return `<div style="font-size:8px; color:#999; margin-top:2px;">안테나 없음</div>`;
+          return list.map(ant => {
+            let btnStr = '';
+            if (isSurvey || isRelocationMode) {
+              if (ant.relocated && isRelocationMode) btnStr = `<button class="btn-small-action btn-reset-relocation" onclick="resetAntennaRelocation(${num}, '${ant.id}')">취소</button>`;
+              else btnStr = `<button class="btn-small-action" style="background:#1a73e8; color:#fff;" onclick="selectAntennaForRelocation(${num}, ${JSON.stringify(ant).replace(/"/g, '&quot;')})">이동</button>`;
+            } else if (isInvestmentMode && ant.isAddedInvestment) {
+              btnStr = `<button class="btn-small-action btn-delete-investment" onclick="deleteInvestmentAntenna(${num}, '${ant.id}')">삭제</button>`;
+            }
+            return `<div class="antenna-item-row"><span><b>${ant.name}</b></span><div>${btnStr}</div></div>`;
+          }).join('');
+        };
+
+        html += `
+          <div class="equipment-card">
+            <div class="equipment-card-header">
+              <span>📡 장비위치 ${num}</span>
+              ${isSurvey ? `<button onclick="deleteEquipment('${currentCarrier}', ${num})" style="color:#d93025; background:none; border:none; cursor:pointer; font-size:9px;">삭제</button>` : ''}
+            </div>
+            <div class="type-tabs">
+              <button class="tab-btn ${activeTab === 'LTE' ? 'active' : ''}" onclick="switchTab(${num}, 'LTE')">LTE</button>
+              <button class="tab-btn ${activeTab === '5G' ? 'active' : ''}" onclick="switchTab(${num}, '5G')">5G</button>
+            </div>
+            <div class="tab-content ${activeTab === 'LTE' ? 'active' : ''}">
+              <div class="antenna-control">
+                <label>수량:</label>
+                <input type="number" id="antenna-count-lte-${num}" class="antenna-input" min="0" max="10" value="${eq.targetCounts.LTE ?? 0}" ${!isSurvey ? 'disabled' : ''}>
+                ${isSurvey ? `<button class="btn-draw-antenna" onclick="startAntennaPlacement(${num}, 'LTE')">LTE 배치</button>` : ''}
+                ${isInvestmentMode ? `<button class="btn-add-investment-antenna" onclick="startInvestmentAntennaAddition(${num}, 'LTE')">+ 추가</button>` : ''}
+              </div>
+              <div style="margin-top:2px;">${genRows(lteList)}</div>
+            </div>
+            <div class="tab-content ${activeTab === '5G' ? 'active' : ''}">
+              <div class="antenna-control">
+                <label>수량:</label>
+                <input type="number" id="antenna-count-5g-${num}" class="antenna-input" min="0" max="10" value="${eq.targetCounts['5G'] ?? 0}" ${!isSurvey ? 'disabled' : ''}>
+                ${isSurvey ? `<button class="btn-draw-antenna" onclick="startAntennaPlacement(${num}, '5G')">5G 배치</button>` : ''}
+                ${isInvestmentMode ? `<button class="btn-add-investment-antenna" style="background:#8A2BE2;" onclick="startInvestmentAntennaAddition(${num}, '5G')">+ 추가</button>` : ''}
+              </div>
+              <div style="margin-top:2px;">${genRows(fivegList)}</div>
+            </div>
+          </div>
+        `;
+      });
+      equipmentListEl.innerHTML = html;
+    }
+
+    function showImageModal(dataUrl, fileName) {
+      const modal = document.getElementById('image-modal');
+      const imgEl = document.getElementById('modal-image-element');
+      const downloadLink = document.getElementById('modal-download-link');
+
+      imgEl.src = dataUrl;
+      downloadLink.href = dataUrl;
+      downloadLink.download = fileName;
+      modal.style.display = 'flex';
+      statusText.textContent = "✅ 캡처 완료!";
+    }
+
+    function closeImageModal() {
+      document.getElementById('image-modal').style.display = 'none';
+    }
+
+    function saveCurrentTabImage() {
+      statusText.textContent = "📸 지도 캡처 중...";
+      map.invalidateSize(true);
+
+      setTimeout(() => {
+        const captureTarget = document.getElementById('capture-area');
+        html2canvas(captureTarget, {
+          useCORS: true,
+          allowTaint: false,
+          scale: 2,
+          ignoreElements: (element) => element.id === 'image-modal'
+        }).then(canvas => {
+          const dataUrl = canvas.toDataURL('image/png');
+          const fileName = `${globalStationName || '국소'}_${currentMainTab}.png`;
+          showImageModal(dataUrl, fileName);
+        }).catch(err => {
+          console.error(err);
+          alert("캡처 중 오류가 발생했습니다.");
+          statusText.textContent = "❌ 캡처 실패";
+        });
+      }, 300);
+    }
+
+    async function saveAllTabsImage() {
+      const tabs = ['survey', 'voc', 'optimization'];
+      const original = currentMainTab;
+      const canvases = [];
+      
+      try {
+        statusText.textContent = "📸 전체 통합 저장 중...";
+        
+        for (const t of tabs) {
+          switchMainTab(t);
+          map.invalidateSize(true);
+          await new Promise(r => setTimeout(r, 500));
+
+          const captureTarget = document.getElementById('capture-area');
+          const tabCanvas = await html2canvas(captureTarget, {
+            useCORS: true,
+            allowTaint: false,
+            scale: 2,
+            ignoreElements: (element) => element.id === 'image-modal'
+          });
+          canvases.push(tabCanvas);
+        }
+        
+        switchMainTab(original);
+
+        const w = Math.max(...canvases.map(c => c.width));
+        const h = canvases.reduce((sum, c) => sum + c.height, 0);
+        const merged = document.createElement('canvas');
+        merged.width = w; merged.height = h;
+        const ctx = merged.getContext('2d');
+        
+        let y = 0;
+        canvases.forEach(c => { 
+          ctx.drawImage(c, 0, y); 
+          y += c.height; 
+        });
+
+        const dataUrl = merged.toDataURL('image/png');
+        const fileName = `${globalStationName || '국소'}_전체_통합화면.png`;
+        showImageModal(dataUrl, fileName);
+
+      } catch (e) { 
+        switchMainTab(original); 
+        console.error(e);
+        alert("전체 저장 실패");
+        statusText.textContent = "❌ 전체 저장 실패";
+      }
+    }
+
+    async function getAddressFromLatLng(lat, lng) {
+      const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+      if (addressCache[key]) return addressCache[key];
+
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`);
+        if (response.ok) {
+          const data = await response.json();
+          let addr = data.display_name || '주소 정보 없음';
+          if(data.address) {
+            const a = data.address;
+            addr = `${a.city || a.province || ''} ${a.borough || a.suburb || a.city_district || ''} ${a.road || a.neighbourhood || ''} ${a.house_number || ''}`.trim();
+          }
+          addressCache[key] = addr;
+          return addr;
+        }
+      } catch (e) {
+        console.error("주소 변환 실패:", e);
+      }
+      return '주소 조회 실패';
+    }
+
+    async function exportToExcel() {
+      statusText.textContent = "📊 주소 정보 변환 및 엑셀 생성 중...";
+      const station = globalStationName !== '' ? globalStationName : '미지정';
+      
+      const extract = async (tabName) => {
+        const rows = [];
+        for (const c of ['SKT', 'KT', 'LGU']) {
+          for (const eq of Object.values(tabDataStore[tabName][c])) {
+            const address = await getAddressFromLatLng(eq.lat, eq.lng);
+
+            if (eq.antennas.length === 0) {
+              const baseRow = {
+                '국소명': station,
+                '주소': address,
+                '통신사': c,
+                '장비번호': eq.eqNum,
+                '장비위도': eq.lat,
+                '장비경도': eq.lng,
+                '안테나명': '없음',
+                '타입': '-',
+                'ANT위도': '-',
+                'ANT경도': '-',
+                '각도': '-'
+              };
+              if (tabName === 'voc') baseRow['메모'] = '-';
+              if (tabName === 'optimization') baseRow['상태'] = '-';
+
+              rows.push(baseRow);
+            } else {
+              for (const ant of eq.antennas) {
+                let antLat = ant.originLat;
+                let antLng = ant.originLng;
+                let antAzimuth = ant.azimuth;
+                let statusStr = '기존';
+
+                if (ant.relocated) {
+                  antLat = ant.relocated.originLat;
+                  antLng = ant.relocated.originLng;
+                  antAzimuth = ant.relocated.azimuth;
+                  statusStr = '재배치';
+                } else if (ant.isAddedInvestment) {
+                  statusStr = '신규추가';
+                }
+
+                const baseRow = {
+                  '국소명': station,
+                  '주소': address,
+                  '통신사': c,
+                  '장비번호': eq.eqNum,
+                  '장비위도': eq.lat,
+                  '장비경도': eq.lng,
+                  '안테나명': ant.name,
+                  '타입': ant.type,
+                  'ANT위도': antLat,
+                  'ANT경도': antLng,
+                  '각도': Math.round(antAzimuth)
+                };
+
+                if (tabName === 'voc') {
+                  baseRow['메모'] = ant.vocMemo || '-';
+                }
+                
+                if (tabName === 'optimization') {
+                  baseRow['상태'] = statusStr;
+                }
+
+                rows.push(baseRow);
+              }
+            }
+          }
+        }
+        return rows;
+      };
+
+      const wb = XLSX.utils.book_new();
+      
+      const surveyRows = await extract('survey');
+      const vocRows = await extract('voc');
+      const optRows = await extract('optimization');
+
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(surveyRows), "현장실사");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(vocRows), "VOC");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(optRows), "투자,최적화");
+
+      XLSX.writeFile(wb, `${station}_작업내역.xlsx`);
+      statusText.textContent = "📊 엑셀 다운로드 완료";
+    }
+
+    window.onload = () => moveToCurrentLocation();
+  </script>
+</body>
+</html>
